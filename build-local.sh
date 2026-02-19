@@ -6,21 +6,11 @@ set -e
 
 echo "=== Building Kilo CLI for ARMv8.0 ==="
 
-# Install unzip if needed
-if ! command -v unzip &> /dev/null; then
-    echo "Installing unzip..."
-    if command -v apt-get &> /dev/null; then
-        sudo apt-get update && sudo apt-get install -y unzip
-    elif command -v apk &> /dev/null; then
-        sudo apk add unzip
-    elif command -v dnf &> /dev/null; then
-        sudo dnf install -y unzip
-    elif command -v pacman &> /dev/null; then
-        sudo pacman -S --noconfirm unzip
-    else
-        echo "Error: Could not install unzip. Please install it manually."
-        exit 1
-    fi
+# Install dependencies
+echo "Checking dependencies..."
+if command -v apt-get &> /dev/null; then
+    sudo apt-get update
+    sudo apt-get install -y unzip git python3 make g++ curl
 fi
 
 # Install Bun if needed
