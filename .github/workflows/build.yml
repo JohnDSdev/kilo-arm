@@ -1,0 +1,72 @@
+name: Build ARM64 Binary
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly rebuild
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Kilo source
+        uses: actions/checkout@v4
+        with:
+          repository: Kilo-Org/kilo
+          ref: dev
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Build in ARM64 container
+        uses: addnab/docker-run-action@v3
+        with:
+          image: arm64v8/node:20-slim
+          options: --platform linux/arm64 -v ${{ github.workspace }}:/workspace -w /workspace
+          run: |
+            # Install Bun
+            curl -fsSL https://bun.sh/install | bash
+            export PATH="$HOME/.bun/bin:$PATH"
+            
+            # Install build dependencies
+            apt-get update && apt-get install -y git python3 make g++
+            
+            # Build
+            bun install
+            cd packages/opencode
+            bun run build -- --single
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          cd packages/opencode/dist/@kilocode/cli-linux-arm64/bin
+          tar -czvf $GITHUB_WORKSPACE/release/kilo-linux-arm64.tar.gz kilo
+          
+          if [ -d "$GITHUB_WORKSPACE/packages/opencode/dist/@kilocode/cli-linux-arm64-musl/bin" ]; then
+            cd $GITHUB_WORKSPACE/packages/opencode/dist/@kilocode/cli-linux-arm64-musl/bin
+            tar -czvf $GITHUB_WORKSPACE/release/kilo-linux-arm64-musl.tar.gz kilo
+          fi
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(date +%Y%m%d)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Kilo CLI ARM64 Build ${{ steps.version.outputs.version }}
+          files: release/*
+          generate_release_notes: false
+          body: |
+            ARM64 binary built natively via QEMU emulation.
+            
+            Compatible with ARMv8.0 CPUs (Cortex-A53, Raspberry Pi 4, Rock 2A, etc.)
