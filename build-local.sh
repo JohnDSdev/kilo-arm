@@ -24,6 +24,20 @@ fi
 
 echo "Bun version: $(bun --version)"
 
+# Check if Bun actually works on this CPU
+echo "Testing Bun compatibility..."
+if ! bun -e "console.log('Bun works!')" 2>/dev/null; then
+    echo ""
+    echo "ERROR: Bun itself is not compatible with this CPU."
+    echo "This device has an older ARMv8.0 CPU (Cortex-A53)."
+    echo ""
+    echo "Workaround: Use Node.js instead"
+    echo "  1. Install Node.js: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs"
+    echo "  2. Run Kilo via npx: npx @kilocode/cli"
+    echo ""
+    exit 1
+fi
+
 # Create build directory
 BUILD_DIR="$HOME/kilo-build"
 rm -rf "$BUILD_DIR"
