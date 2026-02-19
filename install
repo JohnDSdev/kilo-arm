@@ -1,236 +1,137 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
+# Install Kilo CLI on ARMv8.0 CPUs (Cortex-A53, Rock 2A, Raspberry Pi 4, etc.)
+# This script runs Kilo from source to avoid compiled binary compatibility issues
+
+set -e
 
 MUTED='\033[0;2m'
 RED='\033[0;31m'
-ORANGE='\033[38;5;214m'
 GREEN='\033[0;32m'
+ORANGE='\033[38;5;214m'
 NC='\033[0m'
 
-usage() {
-    cat <<EOF
-Kilo CLI ARM64 Installer
+echo -e "${GREEN}=== Kilo CLI Installer for ARMv8.0 ===${NC}"
+echo ""
 
-Usage: install [options]
+INSTALL_DIR="$HOME/.kilo"
+SOURCE_DIR="$INSTALL_DIR/source"
+BIN_DIR="$INSTALL_DIR/bin"
 
-Options:
-    -h, --help              Display this help message
-    -v, --version <version> Install a specific version
-    --musl                  Install musl variant (for Alpine Linux)
-    --no-modify-path        Don't modify shell config files
-
-Examples:
-    curl -fsSL https://raw.githubusercontent.com/JohnDSdev/kilo-arm/main/install | bash
-    curl -fsSL https://raw.githubusercontent.com/JohnDSdev/kilo-arm/main/install | bash -s -- --musl
-EOF
-}
-
-requested_version=${VERSION:-}
-no_modify_path=false
-use_musl=false
-
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        -h|--help)
-            usage
-            exit 0
-            ;;
-        -v|--version)
-            if [[ -n "${2:-}" ]]; then
-                requested_version="$2"
-                shift 2
-            else
-                echo -e "${RED}Error: --version requires a version argument${NC}"
-                exit 1
-            fi
-            ;;
-        --musl)
-            use_musl=true
-            shift
-            ;;
-        --no-modify-path)
-            no_modify_path=true
-            shift
-            ;;
-        *)
-            echo -e "${ORANGE}Warning: Unknown option '$1'${NC}" >&2
-            shift
-            ;;
-    esac
-done
-
-INSTALL_DIR=$HOME/.kilo/bin
-mkdir -p "$INSTALL_DIR"
-
-raw_os=$(uname -s)
-os=$(echo "$raw_os" | tr '[:upper:]' '[:lower:]')
-
-if [[ "$os" != "linux" ]]; then
-    echo -e "${RED}Error: This installer is for Linux only.${NC}"
-    echo -e "${MUTED}For macOS or Windows, use the official installer:${NC}"
-    echo -e "${MUTED}  curl -fsSL https://kilo.ai/cli/install | bash${NC}"
-    exit 1
+# Install system dependencies
+echo -e "${MUTED}Installing system dependencies...${NC}"
+if command -v apt-get &> /dev/null; then
+    sudo apt-get update -qq
+    sudo apt-get install -y -qq unzip git curl python3 make g++ > /dev/null
 fi
 
-arch=$(uname -m)
-if [[ "$arch" != "aarch64" && "$arch" != "arm64" ]]; then
-    echo -e "${RED}Error: This installer is for ARM64 systems only.${NC}"
-    echo -e "${MUTED}Detected architecture: $arch${NC}"
-    echo -e "${MUTED}For x86_64 systems, use the official installer:${NC}"
-    echo -e "${MUTED}  curl -fsSL https://kilo.ai/cli/install | bash${NC}"
-    exit 1
+# Check for compatible runtime
+RUNTIME=""
+
+# Check Bun first
+if [ -f "$HOME/.bun/bin/bun" ]; then
+    export PATH="$HOME/.bun/bin:$PATH"
 fi
 
-is_musl=false
-if [ -f /etc/alpine-release ]; then
-    is_musl=true
-fi
-
-if command -v ldd >/dev/null 2>&1; then
-    if ldd --version 2>&1 | grep -qi musl; then
-        is_musl=true
+if command -v bun &> /dev/null; then
+    echo -e "${MUTED}Testing Bun compatibility...${NC}"
+    if bun -e "console.log('ok')" 2>/dev/null; then
+        echo -e "${GREEN}✓ Bun is compatible!${NC}"
+        RUNTIME="bun"
+    else
+        echo -e "${ORANGE}✗ Bun not compatible with this CPU (ARMv8.0)${NC}"
     fi
 fi
 
-if [ "$use_musl" = true ] && [ "$is_musl" = false ]; then
-    echo -e "${ORANGE}Note: --musl specified but system appears to use glibc${NC}"
-    is_musl=true
-fi
-
-if [ "$is_musl" = true ]; then
-    variant="musl"
-else
-    variant="glibc"
-fi
-
-filename="kilo-linux-arm64"
-if [ "$is_musl" = true ]; then
-    filename="kilo-linux-arm64-musl"
-fi
-filename="${filename}.tar.gz"
-
-if [ -z "$requested_version" ]; then
-    url="https://github.com/JohnDSdev/kilo-arm/releases/latest/download/${filename}"
-else
-    requested_version="${requested_version#v}"
-    url="https://github.com/JohnDSdev/kilo-arm/releases/download/v${requested_version}/${filename}"
-fi
-
-print_message() {
-    local level=$1
-    local message=$2
-    local color=""
-
-    case $level in
-        info) color="${NC}" ;;
-        warning) color="${ORANGE}" ;;
-        error) color="${RED}" ;;
-        success) color="${GREEN}" ;;
-    esac
-
-    echo -e "${color}${message}${NC}"
-}
-
-download_and_install() {
-    print_message info "\n${MUTED}Installing ${NC}Kilo CLI ${MUTED}for ARM64 (${variant})${NC}"
+# Fall back to Node.js
+if [ -z "$RUNTIME" ]; then
+    echo -e "${MUTED}Checking Node.js...${NC}"
+    if ! command -v node &> /dev/null; then
+        echo -e "${MUTED}Installing Node.js 20...${NC}"
+        curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - > /dev/null 2>&1
+        sudo apt-get install -y -qq nodejs > /dev/null
+    fi
     
-    local tmp_dir="${TMPDIR:-/tmp}/kilo_install_$$"
-    mkdir -p "$tmp_dir"
-
-    print_message info "${MUTED}Downloading from:${NC} $url"
-    
-    if ! curl -fsSL -o "$tmp_dir/$filename" "$url"; then
-        echo -e "${RED}Error: Failed to download binary${NC}"
-        echo -e "${MUTED}URL: $url${NC}"
-        rm -rf "$tmp_dir"
+    if node -e "console.log('ok')" 2>/dev/null; then
+        echo -e "${GREEN}✓ Node.js is compatible!${NC}"
+        RUNTIME="node"
+    else
+        echo -e "${RED}ERROR: No compatible JavaScript runtime found${NC}"
         exit 1
     fi
+fi
 
-    tar -xzf "$tmp_dir/$filename" -C "$tmp_dir"
+echo -e "${GREEN}Using runtime: $RUNTIME${NC}"
+echo ""
 
-    mv "$tmp_dir/kilo" "$INSTALL_DIR"
-    chmod 755 "${INSTALL_DIR}/kilo"
-    rm -rf "$tmp_dir"
-}
+# Create directories
+mkdir -p "$INSTALL_DIR"
+mkdir -p "$BIN_DIR"
 
-download_and_install
+# Clone or update source
+if [ -d "$SOURCE_DIR" ]; then
+    echo -e "${MUTED}Updating Kilo source...${NC}"
+    cd "$SOURCE_DIR"
+    git pull -q 2>/dev/null || git fetch -q && git reset --hard origin/dev -q
+else
+    echo -e "${MUTED}Cloning Kilo repository (this may take a minute)...${NC}"
+    git clone --depth 1 --branch dev --single-branch https://github.com/Kilo-Org/kilo.git "$SOURCE_DIR" 2>/dev/null
+    cd "$SOURCE_DIR"
+fi
 
-add_to_path() {
-    local config_file=$1
-    local command=$2
+# Install dependencies
+echo -e "${MUTED}Installing dependencies (this may take a few minutes)...${NC}"
+if [ "$RUNTIME" = "bun" ]; then
+    bun install --silent 2>/dev/null
+else
+    npm install --silent 2>/dev/null
+fi
 
-    if grep -Fxq "$command" "$config_file"; then
-        print_message info "Command already exists in $config_file, skipping write."
-    elif [[ -w $config_file ]]; then
-        echo -e "\n# kilo" >> "$config_file"
-        echo "$command" >> "$config_file"
-        print_message info "${MUTED}Successfully added ${NC}kilo ${MUTED}to \$PATH in ${NC}$config_file"
-    else
-        print_message warning "Manually add the directory to $config_file (or similar):"
-        print_message info "  $command"
-    fi
-}
+# Create wrapper script
+cat > "$BIN_DIR/kilo" << WRAPPER
+#!/bin/bash
+export PATH="$HOME/.bun/bin:\$PATH"
+cd "$SOURCE_DIR/packages/opencode"
+if command -v bun &> /dev/null && bun -e "1" 2>/dev/null; then
+    exec bun run --conditions=browser ./src/index.ts "\$@"
+else
+    exec npx tsx ./src/index.ts "\$@"
+fi
+WRAPPER
 
-XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
+chmod +x "$BIN_DIR/kilo"
 
-if [[ "$no_modify_path" != "true" ]]; then
-    current_shell=$(basename "$SHELL")
-    case $current_shell in
-        fish)
-            config_files="$HOME/.config/fish/config.fish"
-            ;;
-        zsh)
-            config_files="${ZDOTDIR:-$HOME}/.zshrc ${ZDOTDIR:-$HOME}/.zshenv $XDG_CONFIG_HOME/zsh/.zshrc $XDG_CONFIG_HOME/zsh/.zshenv"
-            ;;
-        bash)
-            config_files="$HOME/.bashrc $HOME/.bash_profile $HOME/.profile $XDG_CONFIG_HOME/bash/.bashrc $XDG_CONFIG_HOME/bash/.bash_profile"
-            ;;
-        ash)
-            config_files="$HOME/.ashrc $HOME/.profile /etc/profile"
-            ;;
-        sh)
-            config_files="$HOME/.ashrc $HOME/.profile /etc/profile"
-            ;;
-        *)
-            config_files="$HOME/.bashrc $HOME/.bash_profile $XDG_CONFIG_HOME/bash/.bashrc $XDG_CONFIG_HOME/bash/.bash_profile"
-            ;;
-    esac
+# Create kilocode symlink
+ln -sf "$BIN_DIR/kilo" "$BIN_DIR/kilocode" 2>/dev/null || true
 
-    config_file=""
-    for file in $config_files; do
-        if [[ -f $file ]]; then
-            config_file=$file
-            break
-        fi
-    done
+# Add to PATH
+current_shell=$(basename "$SHELL")
+config_file=""
 
-    if [[ -z $config_file ]]; then
-        print_message warning "No config file found for $current_shell. You may need to manually add to PATH:"
-        print_message info "  export PATH=$INSTALL_DIR:\$PATH"
-    elif [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
-        case $current_shell in
-            fish)
-                add_to_path "$config_file" "fish_add_path $INSTALL_DIR"
-                ;;
-            *)
-                add_to_path "$config_file" "export PATH=$INSTALL_DIR:\$PATH"
-                ;;
-        esac
+case $current_shell in
+    bash) config_file="$HOME/.bashrc" ;;
+    zsh) config_file="${ZDOTDIR:-$HOME}/.zshrc" ;;
+    fish) config_file="$HOME/.config/fish/config.fish" ;;
+esac
+
+if [ -n "$config_file" ] && [ -f "$config_file" ]; then
+    if ! grep -q "export PATH=\"\$HOME/.kilo/bin:\$PATH\"" "$config_file" 2>/dev/null; then
+        echo "" >> "$config_file"
+        echo "# Kilo CLI" >> "$config_file"
+        echo "export PATH=\"\$HOME/.kilo/bin:\$PATH\"" >> "$config_file"
     fi
 fi
 
-if [ -n "${GITHUB_ACTIONS-}" ] && [ "${GITHUB_ACTIONS}" == "true" ]; then
-    echo "$INSTALL_DIR" >> $GITHUB_PATH
-    print_message info "Added $INSTALL_DIR to \$GITHUB_PATH"
-fi
+# Export PATH for current session
+export PATH="$BIN_DIR:$PATH"
 
-echo -e ""
-echo -e "${GREEN}Installation complete!${NC}"
-echo -e ""
-echo -e "${MUTED}Kilo includes free models so you can start immediately:${NC}"
-echo -e ""
-echo -e "cd <project>  ${MUTED}# Open directory${NC}"
-echo -e "kilo          ${MUTED}# Run Kilo${NC}"
-echo -e ""
-echo -e "${MUTED}For more information visit ${NC}https://kilo.ai/docs"
-echo -e ""
+echo ""
+echo -e "${GREEN}=== Installation Complete ===${NC}"
+echo ""
+echo -e "${MUTED}Kilo installed to: ${NC}$BIN_DIR/kilo"
+echo -e "${MUTED}Runtime: ${NC}$RUNTIME"
+echo ""
+echo -e "${GREEN}Run 'kilo' to start!${NC}"
+echo ""
+echo -e "${MUTED}First time? Start a new shell or run:${NC}"
+echo -e "  source ~/$current_shell"
+echo ""
