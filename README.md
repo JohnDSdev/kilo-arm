@@ -26,7 +26,7 @@ This repo provides ARM64 binaries compiled without CPU-specific optimizations fo
 ### Quick Install (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/JohnDSdev/kilo-arm/main/install | bash
+curl -fsSL https://raw.githubusercontent.com/JohnDSdev/kilo-arm/master/install | bash
 ```
 
 ### Manual Install
