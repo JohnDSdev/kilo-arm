@@ -4,7 +4,19 @@ Pre-built ARM64 binaries for [Kilo CLI](https://github.com/Kilo-Org/kilo) - the 
 
 ## Why This Repo?
 
-The official Kilo CLI releases don't always have ARM64 binaries readily available. This repo provides pre-compiled ARM64 binaries for:
+The official Kilo CLI releases include ARM64 binaries, but they may fail on some ARM devices with:
+
+```
+kilo binary exited via signal SIGILL
+Illegal instruction: this Kilo binary is not compatible with this CPU.
+```
+
+This happens on devices like:
+- Radxa Rock 2A/2B
+- Raspberry Pi 3/4 (some models)
+- Older ARMv8 SoCs without advanced SIMD extensions
+
+This repo provides ARM64 binaries compiled without CPU-specific optimizations for maximum compatibility:
 
 - **linux-arm64** - Standard glibc-based systems (Ubuntu, Debian, Fedora, etc.)
 - **linux-arm64-musl** - Alpine Linux and other musl-based systems
